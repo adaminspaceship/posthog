@@ -24,10 +24,10 @@ PYTHON_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64
 INNO_SETUP_URL = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
 POSTHOG_URL = "https://github.com/PostHog/posthog/archive/refs/heads/master.zip"
 
-def run_command(command, cwd=None, env=None):
+def run_command(command, cwd=None):
     """Run a command and print output"""
     print(f"Running: {command}")
-    result = subprocess.run(command, shell=True, cwd=cwd, check=True, env=env)
+    result = subprocess.run(command, shell=True, cwd=cwd, check=True)
     return result
 
 def download_file(url, dest):
@@ -53,12 +53,6 @@ def extract_zip(zip_path, extract_to):
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_to)
     
-    # Rename extracted root folder if necessary (e.g., posthog-master-HASH to posthog-master)
-    extracted_dirs = [d for d in Path(extract_to).iterdir() if d.is_dir() and 'posthog-' in d.name]
-    if len(extracted_dirs) == 1 and extracted_dirs[0].name != POSTHOG_DIR.name:
-        print(f"Renaming {extracted_dirs[0]} to {POSTHOG_DIR}")
-        extracted_dirs[0].rename(POSTHOG_DIR)
-    
     print(f"Extracted {zip_path}")
 
 def setup_environment():
@@ -76,17 +70,7 @@ def setup_environment():
     if not POSTHOG_DIR.exists():
         posthog_zip = BUILD_DIR / "posthog.zip"
         download_file(POSTHOG_URL, posthog_zip)
-        # Extract to a temporary place to handle potential root folder naming
-        temp_extract_dir = BUILD_DIR / "posthog_extract"
-        if temp_extract_dir.exists():
-            shutil.rmtree(temp_extract_dir)
-        extract_zip(posthog_zip, temp_extract_dir)
-        # Find the actual source folder (e.g., posthog-master)
-        extracted_src = next(temp_extract_dir.iterdir()) # Assume only one folder inside
-        if POSTHOG_DIR.exists():
-             shutil.rmtree(POSTHOG_DIR)
-        shutil.move(str(extracted_src), str(POSTHOG_DIR))
-        shutil.rmtree(temp_extract_dir)
+        extract_zip(posthog_zip, ".")
     
     # Download Node.js
     node_zip = BUILD_DIR / "node.zip"
@@ -117,32 +101,11 @@ def setup_environment():
     
     print("Environment setup complete")
 
-def build_posthog_components():
-    """Build PostHog frontend and plugin server"""
-    print("Building PostHog components...")
-    
-    # Set environment to skip husky installation
-    env = os.environ.copy()
-    env["HUSKY"] = "0"
-    
-    # Install Node.js dependencies with husky and prepare scripts disabled
-    run_command("pnpm install --no-prepare", cwd=POSTHOG_DIR, env=env)
-    
-    # Build frontend
-    print("Building frontend...")
-    run_command("pnpm --filter=@posthog/frontend build", cwd=POSTHOG_DIR, env=env)
-    
-    # Build plugin server
-    print("Building plugin server...")
-    run_command("pnpm --filter=@posthog/plugin-server build", cwd=POSTHOG_DIR, env=env)
-    
-    print("PostHog components built successfully")
-
 def copy_posthog_files():
     """Copy necessary PostHog files to the distribution directory"""
     print("Copying PostHog files...")
     
-    # Ensure dist dir exists
+    # Copy the main PostHog files
     os.makedirs(DIST_DIR, exist_ok=True)
     
     # Copy launcher scripts
@@ -150,60 +113,24 @@ def copy_posthog_files():
     shutil.copy("posthog.bat", DIST_DIR)
     
     # Copy PostHog Python files
-    posthog_py_dir = DIST_DIR / "posthog"
-    if posthog_py_dir.exists(): shutil.rmtree(posthog_py_dir)
-    shutil.copytree(POSTHOG_DIR / "posthog", posthog_py_dir, dirs_exist_ok=True)
+    posthog_dir = DIST_DIR / "posthog"
+    os.makedirs(posthog_dir, exist_ok=True)
+    shutil.copytree(POSTHOG_DIR / "posthog", posthog_dir, dirs_exist_ok=True)
     
-    # Copy common Python files
-    common_dir = DIST_DIR / "common"
-    if common_dir.exists(): shutil.rmtree(common_dir)
-    shutil.copytree(POSTHOG_DIR / "common", common_dir, dirs_exist_ok=True)
-
-    # Copy products Python files
-    products_dir = DIST_DIR / "products"
-    if products_dir.exists(): shutil.rmtree(products_dir)
-    shutil.copytree(POSTHOG_DIR / "products", products_dir, dirs_exist_ok=True)
-
     # Copy Django management scripts
     shutil.copy(POSTHOG_DIR / "manage.py", DIST_DIR)
     
     # Copy frontend assets
-    frontend_dist_src = POSTHOG_DIR / "frontend" / "dist"
-    frontend_dist_dest = DIST_DIR / "frontend" / "dist"
-    if not frontend_dist_src.exists():
-        raise FileNotFoundError(f"Frontend dist directory not found: {frontend_dist_src}")
-    if frontend_dist_dest.exists(): shutil.rmtree(frontend_dist_dest.parent)
-    os.makedirs(frontend_dist_dest.parent, exist_ok=True)
-    shutil.copytree(frontend_dist_src, frontend_dist_dest, dirs_exist_ok=True)
+    frontend_dist = DIST_DIR / "frontend" / "dist"
+    os.makedirs(frontend_dist, exist_ok=True)
+    shutil.copytree(POSTHOG_DIR / "frontend" / "dist", frontend_dist, dirs_exist_ok=True)
     
     # Copy plugin server
-    plugin_server_src = POSTHOG_DIR / "plugin-server"
-    plugin_server_dest = DIST_DIR / "plugin-server"
-    if plugin_server_dest.exists(): shutil.rmtree(plugin_server_dest)
-    os.makedirs(plugin_server_dest, exist_ok=True)
-    # Copy dist
-    plugin_dist_src = plugin_server_src / "dist"
-    plugin_dist_dest = plugin_server_dest / "dist"
-    if not plugin_dist_src.exists():
-        raise FileNotFoundError(f"Plugin server dist directory not found: {plugin_dist_src}")
-    shutil.copytree(plugin_dist_src, plugin_dist_dest, dirs_exist_ok=True)
-    # Copy node_modules (only production dependencies)
-    print("Installing production Node.js dependencies for plugin server...")
-    # Also disable prepare scripts for plugin server
-    env = os.environ.copy()
-    env["HUSKY"] = "0"
-    run_command("pnpm install --prod --no-prepare", cwd=plugin_server_src, env=env)
-    plugin_node_modules_src = plugin_server_src / "node_modules"
-    plugin_node_modules_dest = plugin_server_dest / "node_modules"
-    shutil.copytree(plugin_node_modules_src, plugin_node_modules_dest, dirs_exist_ok=True)
-    # Copy package.json
-    shutil.copy(plugin_server_src / "package.json", plugin_server_dest)
-
-    # Copy other necessary root files
-    for item in ["pyproject.toml", "pnpm-lock.yaml", "pnpm-workspace.yaml", "uv.lock"]:
-        if (POSTHOG_DIR / item).exists():
-             shutil.copy(POSTHOG_DIR / item, DIST_DIR)
-
+    plugin_server = DIST_DIR / "plugin-server"
+    os.makedirs(plugin_server, exist_ok=True)
+    shutil.copytree(POSTHOG_DIR / "plugin-server" / "dist", plugin_server / "dist", dirs_exist_ok=True)
+    shutil.copytree(POSTHOG_DIR / "plugin-server" / "node_modules", plugin_server / "node_modules", dirs_exist_ok=True)
+    
     # Create data directory
     data_dir = DIST_DIR / "data"
     os.makedirs(data_dir, exist_ok=True)
@@ -214,49 +141,55 @@ def install_python_dependencies():
     """Install Python dependencies to the embedded Python"""
     print("Installing Python dependencies...")
     
-    # Use uv if available, otherwise pip
+    # Create a requirements file with the necessary dependencies
+    requirements = [
+        "Django~=4.2.17",
+        "dj-database-url==0.5.0",
+        "whitenoise==6.5.0",
+        "django-cors-headers==3.5.0",
+        "djangorestframework==3.15.1",
+        "celery==5.3.4",
+        "fakeredis[lua]==2.23.3",
+        "psycopg2-binary==2.9.7",
+        "python-dateutil>=2.8.2",
+        "sentry-sdk~=1.44.1",
+        "requests~=2.32.3",
+        "pillow==10.2.0",
+    ]
+    
+    with open(BUILD_DIR / "requirements.txt", "w") as f:
+        f.write("\n".join(requirements))
+    
+    # Install pip to the embedded Python
     python_dir = EMBEDDED_DIR / "python"
+    get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
+    get_pip_path = BUILD_DIR / "get-pip.py"
+    download_file(get_pip_url, get_pip_path)
+    
+    # Run get-pip.py with the embedded Python
     python_exe = python_dir / "python.exe"
-    pip_exe = python_dir / "Scripts" / "pip.exe"
-    uv_exe = python_dir / "Scripts" / "uv.exe"
-
-    # Ensure pip is installed
-    if not pip_exe.exists():
-        get_pip_url = "https://bootstrap.pypa.io/get-pip.py"
-        get_pip_path = BUILD_DIR / "get-pip.py"
-        download_file(get_pip_url, get_pip_path)
-        run_command(f'"{python_exe}" "{get_pip_path}"')
-        # Install uv
-        run_command(f'"{pip_exe}" install uv')
-
-    # Install the requirements from PostHog's requirements.txt
-    # Assuming PostHog maintains a requirements.txt for broader compatibility
-    requirements_path = POSTHOG_DIR / "requirements.txt"
-    if not requirements_path.exists():
-        print(f"Warning: {requirements_path} not found. Attempting install via pyproject.toml/uv.lock")
-        # This might fail if the lock file isn't present or compatible in the zip download
-        run_command(f'"{uv_exe}" sync --frozen --no-dev --system --python "{python_exe}"', cwd=DIST_DIR)
-    else:
-        print("Installing Python dependencies using uv from requirements.txt...")
-        run_command(f'"{uv_exe}" pip install -r "{requirements_path}" --system --python "{python_exe}"', cwd=DIST_DIR)
+    run_command(f'"{python_exe}" "{get_pip_path}"')
+    
+    # Install the requirements
+    run_command(f'"{python_dir / "Scripts" / "pip.exe"}" install -r "{BUILD_DIR / "requirements.txt"}" --no-warn-script-location')
     
     print("Python dependencies installed")
 
 def create_license_file():
     """Create a license file for the installer"""
-    print("Creating license file...")
-    license_src = POSTHOG_DIR / "LICENSE"
-    if license_src.exists():
-        shutil.copy(license_src, "LICENSE.txt")
-        print("Copied PostHog LICENSE file")
-    else:
-        # Fallback license content
-        license_content = """PostHog Windows Standalone Edition
+    license_content = """PostHog Windows Standalone Edition
 
 Copyright (c) 2020-present PostHog Inc.
 
-This software is based on the PostHog open-source project, available under the MIT license.
-See the original license at: https://github.com/PostHog/posthog/blob/master/LICENSE
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -266,24 +199,25 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-        
-        with open("LICENSE.txt", "w") as f:
-            f.write(license_content)
-        print("Created fallback license file")
+    
+    with open("LICENSE.txt", "w") as f:
+        f.write(license_content)
+    
+    print("License file created")
 
 def build_installer():
     """Build the Windows installer with Inno Setup"""
     print("Building Windows installer...")
     
     # Find Inno Setup compiler
-    inno_compiler_path = Path("C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
-    if not inno_compiler_path.exists():
-        print(f"Inno Setup compiler not found at: {inno_compiler_path}")
-        print("Please install Inno Setup 6 or ensure it's in the default location.")
+    inno_compiler = "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
+    if not os.path.exists(inno_compiler):
+        print("Inno Setup compiler not found at the expected location.")
+        print("Please install Inno Setup 6 and make sure it's installed in the default location.")
         return False
     
     # Run the compiler
-    run_command(f'"{inno_compiler_path}" posthog_installer.iss')
+    run_command(f'"{inno_compiler}" posthog_installer.iss')
     
     print("Installer built successfully!")
     return True
@@ -293,7 +227,6 @@ def main():
     
     try:
         setup_environment()
-        build_posthog_components()
         copy_posthog_files()
         install_python_dependencies()
         create_license_file()
@@ -304,9 +237,7 @@ def main():
         else:
             print("\nBuild failed to create the installer. See errors above.")
     except Exception as e:
-        print(f"\nError during build: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error during build: {e}")
         return 1
     
     return 0
