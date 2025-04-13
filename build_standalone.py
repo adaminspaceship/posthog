@@ -24,10 +24,10 @@ PYTHON_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64
 INNO_SETUP_URL = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
 POSTHOG_URL = "https://github.com/PostHog/posthog/archive/refs/heads/master.zip"
 
-def run_command(command, cwd=None):
+def run_command(command, cwd=None, env=None):
     """Run a command and print output"""
     print(f"Running: {command}")
-    result = subprocess.run(command, shell=True, cwd=cwd, check=True)
+    result = subprocess.run(command, shell=True, cwd=cwd, check=True, env=env)
     return result
 
 def download_file(url, dest):
@@ -121,16 +121,20 @@ def build_posthog_components():
     """Build PostHog frontend and plugin server"""
     print("Building PostHog components...")
     
-    # Install Node.js dependencies (removed --frozen-lockfile)
-    run_command("pnpm install", cwd=POSTHOG_DIR)
+    # Set environment to skip husky installation
+    env = os.environ.copy()
+    env["HUSKY"] = "0"
+    
+    # Install Node.js dependencies with husky and prepare scripts disabled
+    run_command("pnpm install --no-prepare", cwd=POSTHOG_DIR, env=env)
     
     # Build frontend
     print("Building frontend...")
-    run_command("pnpm --filter=@posthog/frontend build", cwd=POSTHOG_DIR)
+    run_command("pnpm --filter=@posthog/frontend build", cwd=POSTHOG_DIR, env=env)
     
     # Build plugin server
     print("Building plugin server...")
-    run_command("pnpm --filter=@posthog/plugin-server build", cwd=POSTHOG_DIR)
+    run_command("pnpm --filter=@posthog/plugin-server build", cwd=POSTHOG_DIR, env=env)
     
     print("PostHog components built successfully")
 
@@ -185,8 +189,10 @@ def copy_posthog_files():
     shutil.copytree(plugin_dist_src, plugin_dist_dest, dirs_exist_ok=True)
     # Copy node_modules (only production dependencies)
     print("Installing production Node.js dependencies for plugin server...")
-    # Also remove --frozen-lockfile here for consistency
-    run_command("pnpm install --prod", cwd=plugin_server_src) 
+    # Also disable prepare scripts for plugin server
+    env = os.environ.copy()
+    env["HUSKY"] = "0"
+    run_command("pnpm install --prod --no-prepare", cwd=plugin_server_src, env=env)
     plugin_node_modules_src = plugin_server_src / "node_modules"
     plugin_node_modules_dest = plugin_server_dest / "node_modules"
     shutil.copytree(plugin_node_modules_src, plugin_node_modules_dest, dirs_exist_ok=True)
