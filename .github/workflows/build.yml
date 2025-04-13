@@ -22,7 +22,7 @@ jobs:
 
     - name: Install Inno Setup
       run: |
-        choco install innosetup --version=6.2.2 --no-progress --yes
+        choco install innosetup --no-progress --yes
       shell: pwsh
 
     - name: Add Inno Setup to PATH
