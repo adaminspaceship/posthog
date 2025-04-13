@@ -121,8 +121,8 @@ def build_posthog_components():
     """Build PostHog frontend and plugin server"""
     print("Building PostHog components...")
     
-    # Install Node.js dependencies
-    run_command("pnpm install --frozen-lockfile", cwd=POSTHOG_DIR)
+    # Install Node.js dependencies (removed --frozen-lockfile)
+    run_command("pnpm install", cwd=POSTHOG_DIR)
     
     # Build frontend
     print("Building frontend...")
@@ -185,7 +185,8 @@ def copy_posthog_files():
     shutil.copytree(plugin_dist_src, plugin_dist_dest, dirs_exist_ok=True)
     # Copy node_modules (only production dependencies)
     print("Installing production Node.js dependencies for plugin server...")
-    run_command("pnpm install --prod --frozen-lockfile", cwd=plugin_server_src)
+    # Also remove --frozen-lockfile here for consistency
+    run_command("pnpm install --prod", cwd=plugin_server_src) 
     plugin_node_modules_src = plugin_server_src / "node_modules"
     plugin_node_modules_dest = plugin_server_dest / "node_modules"
     shutil.copytree(plugin_node_modules_src, plugin_node_modules_dest, dirs_exist_ok=True)
@@ -222,12 +223,16 @@ def install_python_dependencies():
         # Install uv
         run_command(f'"{pip_exe}" install uv')
 
-    # Install the requirements from PostHog's uv.lock/pyproject.toml
-    # Point uv to the pyproject.toml inside the dist dir where we copied it
-    print("Installing Python dependencies using uv...")
-    run_command(f'"{uv_exe}" pip install -r "{POSTHOG_DIR / "requirements.txt"}" --system --python "{python_exe}"', cwd=DIST_DIR)
-    # Alternative using pyproject.toml (might be slower)
-    # run_command(f'"{uv_exe}" sync --frozen --no-dev --system --python "{python_exe}"', cwd=DIST_DIR)
+    # Install the requirements from PostHog's requirements.txt
+    # Assuming PostHog maintains a requirements.txt for broader compatibility
+    requirements_path = POSTHOG_DIR / "requirements.txt"
+    if not requirements_path.exists():
+        print(f"Warning: {requirements_path} not found. Attempting install via pyproject.toml/uv.lock")
+        # This might fail if the lock file isn't present or compatible in the zip download
+        run_command(f'"{uv_exe}" sync --frozen --no-dev --system --python "{python_exe}"', cwd=DIST_DIR)
+    else:
+        print("Installing Python dependencies using uv from requirements.txt...")
+        run_command(f'"{uv_exe}" pip install -r "{requirements_path}" --system --python "{python_exe}"', cwd=DIST_DIR)
     
     print("Python dependencies installed")
 
