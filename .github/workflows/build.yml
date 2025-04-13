@@ -19,6 +19,17 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11' # Match the version used in the build script
+    
+    # Node.js is usually pre-installed on windows-latest runners
+    # If not, uncomment the following lines:
+    # - name: Set up Node.js
+    #   uses: actions/setup-node@v4
+    #   with:
+    #     node-version: '18' # Match the version used in the build script
+
+    - name: Install PNPM
+      run: npm install -g pnpm
+      shell: cmd
 
     - name: Install Inno Setup
       run: |
