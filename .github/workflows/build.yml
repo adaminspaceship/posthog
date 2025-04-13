@@ -1,0 +1,41 @@
+name: Build PostHog Standalone Windows Installer
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Match the version used in the build script
+
+    - name: Install Inno Setup
+      run: |
+        choco install innosetup --version=6.2.2 --no-progress --yes
+      shell: pwsh
+
+    - name: Add Inno Setup to PATH
+      run: echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      shell: pwsh
+
+    - name: Build the standalone installer
+      run: python build_standalone.py
+      shell: cmd # Use cmd to match the build script's assumptions
+
+    - name: Upload Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: posthog-windows-installer
+        path: output/posthog-windows-setup.exe
+        if-no-files-found: error # Fail if the installer wasn't created 

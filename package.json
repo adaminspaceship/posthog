@@ -1,0 +1,16 @@
+{
+  "name": "posthog-windows-builder",
+  "version": "1.0.0",
+  "description": "Build script for PostHog Windows Executable",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.12",
+    "adm-zip": "^0.5.10"
+  },
+  "devDependencies": {},
+  "author": "",
+  "license": "MIT"
+} 
